@@ -15,33 +15,28 @@
 
 // Error function used for reporting issues
 void error(const char *msg) { 
-  perror(msg); 
-  exit(0); 
+    perror(msg); 
+    exit(1); 
 } 
 
 // Set up the address struct
-void setupAddressStruct(struct sockaddr_in* address, 
-                        int portNumber, 
-                        char* hostname){
- 
-  // Clear out the address struct
-  memset((char*) address, '\0', sizeof(*address)); 
+void setupAddressStructClient(struct sockaddr_in* address, int portNumber, char* hostname) {
+    // Clear out the address struct
+    memset((char*) address, '\0', sizeof(*address)); 
 
-  // The address should be network capable
-  address->sin_family = AF_INET;
-  // Store the port number
-  address->sin_port = htons(portNumber);
+    // The address should be network capable
+    address->sin_family = AF_INET;
+    // Store the port number
+    address->sin_port = htons(portNumber);
 
-  // Get the DNS entry for this host name
-  struct hostent* hostInfo = gethostbyname(hostname); 
-  if (hostInfo == NULL) { 
-    fprintf(stderr, "CLIENT: ERROR, no such host\n"); 
-    exit(0); 
-  }
-  // Copy the first IP address from the DNS entry to sin_addr.s_addr
-  memcpy((char*) &address->sin_addr.s_addr, 
-        hostInfo->h_addr_list[0],
-        hostInfo->h_length);
+    // Get the DNS entry for this host name
+    struct hostent* hostInfo = gethostbyname(hostname); 
+    if (hostInfo == NULL) { 
+        fprintf(stderr, "CLIENT: ERROR, no such host\n"); 
+        exit(1); 
+    }
+    // Copy the first IP address from the DNS entry to sin_addr.s_addr
+    memcpy((char*) &address->sin_addr.s_addr, hostInfo->h_addr_list[0], hostInfo->h_length);
 }
 
 // Usage: enc_client myplaintext mykey 57171
@@ -54,45 +49,134 @@ int main(int argc, char *argv[]) {
     char keyBuffer[256];
     // Check usage & args
     if (argc < 3) { 
-        fprintf(stderr,"USAGE: %s hostname port messageFile keyFile\n", argv[0]); 
+        fprintf(stderr,"USAGE: %s messageFile keyFile port\n", argv[0]);        
+        // messageFile = argv[1], keyFile = argv[2], port = argv[3]
         exit(0); 
     } 
 
-    
-    FILE *messageFile = fopen(argv[3], "r");
-    FILE *keyFile = fopen(argv[4], "r");
-    
+    // open and read message file
+    FILE *messageFile = fopen(argv[1], "r");
+    // move pointer to end of file
+    fseek(messageFile, 0, SEEK_END);
+    // find size of file
+    int sizeOfMsg = ftell(messageFile);
+    // move cursor back to beginning of file??
+    fseek(messageFile, 0, SEEK_SET);
+    char *msgBuffer = calloc(sizeOfMsg, sizeof(char));
+    if (msgBuffer == NULL) {
+        error("Unable to create buffer");
+    }
+    // read file into buffer
+    size_t result = fread(msgBuffer, sizeof(char), sizeOfMsg, messageFile);
+    if (result != sizeOfMsg) {
+        error("Read from file error");
+    }
+    // remove trailing newline 
+    msgBuffer[sizeOfMsg - 1] = '\0';
+
+    // validate message input
+    int i = 0;
+    for (i = 0; i < sizeOfMsg-1; i++) {
+        if (((msgBuffer[i] < 'A') || (msgBuffer[i] > 'Z'))) {
+            if (msgBuffer[i] != ' ') {
+                error("Invalid message");
+            }
+        } 
+    }
+
+    // open and read key file
+    FILE *keyFile = fopen(argv[2], "r");
+    fseek(keyFile, 0, SEEK_END);
+    int sizeOfKey = ftell(keyFile);
+    fseek(keyFile, 0, SEEK_SET);
+
+    size_t keyresult = fread(keyBuffer, sizeof(char), sizeOfKey, keyFile);
+    if (keyresult != sizeOfKey) {
+        error("Read from key error");
+    }
+    keyBuffer[sizeOfKey - 1] = '\0';
+
+
+
+
+    if (sizeOfKey < sizeOfMsg) {
+        //error("Error: key ‘%s’ is too short", argv[2]);
+        error("Error: key is too short");
+    } 
+
+
     // Create a socket
     socketFD = socket(AF_INET, SOCK_STREAM, 0); 
     if (socketFD < 0){
         error("CLIENT: ERROR opening socket");
     }
 
+    
     // Set up the server address struct
-    setupAddressStruct(&serverAddress, atoi(argv[2]), argv[1]);
+    setupAddressStructClient(&serverAddress, atoi(argv[3]), "localhost");
     
     // Connect to server
-    if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0){
+    if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
         printf("ok\n");
         error("CLIENT: ERROR connecting");
     }
-    // Get input message from user
-    //printf("CLIENT: Enter text to send to the server, and then hit enter: ");
-    // Clear out the buffer array
-    memset(buffer, '\0', sizeof(buffer));
-    // Get input from the user, trunc to buffer - 1 chars, leaving \0
-    //fgets(buffer, sizeof(buffer) - 1, stdin);
-    fgets(buffer, 256, (FILE*)messageFile);
-    // Remove the trailing \n that fgets adds
-    buffer[strcspn(buffer, "\n")] = '\0'; 
 
-    // key buffer
-    memset(keyBuffer, '\0', sizeof(keyBuffer));
-    fgets(keyBuffer, 256, (FILE*)keyFile);
-    keyBuffer[strcspn(keyBuffer, "\n")] = '\0';
+    // check for valid client/server connection by sending "enc" to server
+    memset(buffer, '\0', sizeof(buffer));
+    strcpy(buffer, "enc");
+    int sentChars = send(socketFD, buffer, strlen(buffer), 0);
+    if (sentChars != strlen(buffer)) {
+        fprintf(stderr, "Incorrect server connection");
+        exit(2);
+    }
+
+    // tell server how big the message will be
+    memset(buffer, '\0', sizeof(buffer));
+    sprintf(buffer, "%5d", sizeOfMsg-1);
+    sentChars = send(socketFD, buffer, strlen(buffer), 0);
+
+    // send message
+    memset(buffer, '\0', sizeof(buffer));
+    strcpy(buffer, msgBuffer);
+    printf("CLIENT: sending \"%s\" \n", buffer);
+    int msgIndex = 0;
+    int len = strlen(msgBuffer);
+    while (len > 0) {
+        if (len < 256) {
+            sentChars = send(socketFD, &buffer[msgIndex], len, 0);
+            if (sentChars != len) {
+                error("Data is missing");
+            }
+            break;
+        } else {
+            sentChars = send(socketFD, &buffer[msgIndex], 256, 0);
+            msgIndex += 256;
+            len = len - 256;
+            if (sentChars != 256) {
+                error("Data is missing");
+            }
+        }
+    }
+
+    // redo for key
+
+
+    // tell server how big the key will be
+    memset(buffer, '\0', sizeof(buffer));
+    sprintf(buffer, "%5d", sizeOfKey-1);
+    sentChars = send(socketFD, buffer, strlen(buffer), 0);
+
+    // send key
+    memset(buffer, '\0', sizeof(buffer));
+    strcpy(buffer, keyBuffer);
+    printf("CLIENT: sending \"%s\" \n", buffer);
+    sentChars = send(socketFD, buffer, strlen(buffer), 0);
+
+
 
     // Send message to server
     // Write to the server
+    /*
     charsWritten = send(socketFD, buffer, strlen(buffer)+1, 0); 
     if (charsWritten < 0){
         error("CLIENT: ERROR writing to socket");
@@ -100,8 +184,9 @@ int main(int argc, char *argv[]) {
     if (charsWritten < strlen(buffer)){
         printf("CLIENT: WARNING: Not all data written to socket!\n");
     }
+    */
 
-
+    /*
     keyWritten = send(socketFD, keyBuffer, strlen(keyBuffer)+1, 0); 
     //printf("Client: sending key\n");
     if (keyWritten < 0){
@@ -110,17 +195,31 @@ int main(int argc, char *argv[]) {
     if (keyWritten < strlen(keyBuffer)){
         printf("CLIENT: WARNING: Not all key data written to socket!\n");
     }
+    */
 
-    // Get return message from server
+    // Get size of encrypted message from server
     // Clear out the buffer again for reuse
     memset(buffer, '\0', sizeof(buffer));
-    // Read data from the socket, leaving \0 at end
-    charsRead = recv(socketFD, buffer, sizeof(buffer) - 1, 0); 
+    // get size of encrypted message
+    charsRead = recv(socketFD, buffer, 5, 0); 
     if (charsRead < 0){
         error("CLIENT: ERROR reading from socket");
     }
     printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
+    sizeOfMsg = atoi(buffer);
     
+    // get encrypted message from server
+    memset(buffer, '\0', 256);
+    // get the size of the mexsage
+    charsRead = recv(socketFD, buffer, sizeOfMsg, 0); 
+    if (charsRead < 0){
+        error("ERROR writing to socket");
+    }
+    printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
+   
+
+
+
     /*
     memset(keyBuffer, '\0', sizeof(keyBuffer));
     // Read data from the socket, leaving \0 at end
