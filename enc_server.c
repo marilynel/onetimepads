@@ -13,25 +13,17 @@ void error(const char *msg) {
 } 
 
 
-/**
- * QUESTIONS:
- * how can i listen for multiple things on here? do I fork?
- *      --> i am not able to listen for mesage then key, but i want both passed in and i want ot keep them separate
- **/
-
 // Set up the address struct for the server socket
-void setupAddressStructServer(struct sockaddr_in* address, 
-                        int portNumber){
- 
-  // Clear out the address struct
-  memset((char*) address, '\0', sizeof(*address)); 
+void setupAddressStructServer(struct sockaddr_in* address, int portNumber) {
+    // Clear out the address struct
+    memset((char*) address, '\0', sizeof(*address)); 
 
-  // The address should be network capable
-  address->sin_family = AF_INET;
-  // Store the port number
-  address->sin_port = htons(portNumber);
-  // Allow a client at any address to connect to this server
-  address->sin_addr.s_addr = INADDR_ANY;
+    // The address should be network capable
+    address->sin_family = AF_INET;
+    // Store the port number
+    address->sin_port = htons(portNumber);
+    // Allow a client at any address to connect to this server
+    address->sin_addr.s_addr = INADDR_ANY;
 }
 
 int main(int argc, char *argv[]){
@@ -42,7 +34,7 @@ int main(int argc, char *argv[]){
     int bufferLength = 0;
     struct sockaddr_in serverAddress, clientAddress;
     socklen_t sizeOfClientInfo = sizeof(clientAddress);
-    // for counting child processes; need to have up to 5
+    // Counter is for counting child processes; need to be able to have up to 5
     int counter = 0;
 
     // Check usage & args
@@ -54,7 +46,8 @@ int main(int argc, char *argv[]){
     // Create the socket that will listen for connections
     int listenSocket = socket(AF_INET, SOCK_STREAM, 0);
     if (listenSocket < 0) {
-        error("ERROR opening socket");
+        fprintf(stderr, "enc_server: error opening socket\n");
+        exit(1);
     }
 
     // Set up the address struct for the server socket
@@ -62,7 +55,9 @@ int main(int argc, char *argv[]){
 
     // Associate the socket to the port
     if (bind(listenSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
-        error("ERROR on binding");
+        //error("ERROR on binding");
+        fprintf(stderr, "enc_server: error binding socket to port\n");
+        exit(1);
     }
 
     // Start listening for connetions. Allow up to 5 connections to queue up
@@ -70,73 +65,76 @@ int main(int argc, char *argv[]){
   
     // Accept a connection, blocking if one is not available until one connects
     while(1) {
-        // Accept the connection request which creates a connection socket
-        if (counter >=5) {
+        // Accept the connection request which creates a connection socket as long as there are not more than 5
+        /*if (counter >=5) {
             sleep(1000);
             continue;
-        }
+        }*/
+
         connectionSocket = accept(listenSocket, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); 
         if (connectionSocket < 0){
-            error("ERROR on accept");
+            fprintf(stderr, "enc_server: error on accept\n");
+            exit(1);
+            //error("ERROR on accept");
         }
-        counter++;
+        // increment counter to indicate how many child processes are going
+        counter++;  
 
         int child;
         pid_t spawnpid = fork();
-        if (spawnpid == -1) {                 // failed
+        if (spawnpid == -1) {                                       // fork failed
             fprintf(stderr, "Failed to fork.\n");
             continue;
-        } else if (spawnpid > 0) {            // parent
+        } else if (spawnpid > 0) {                                  // parent process
             continue;
-        } else if (spawnpid == 0) {           // child
-            // Get the message from the client and display it
-            memset(buffer, '\0', 256);
-            // Read the client's message from the socket
-            charsRead = recv(connectionSocket, buffer, 3, 0); 
+        } else if (spawnpid == 0) {                                 // child process
+            // Get the validation code from the client ("enc")
+            memset(buffer, '\0', 256);                              // always clear the buffer       
+            charsRead = recv(connectionSocket, buffer, 3, 0);       // Read the client's sent item from the socket, should be 3 bytes ("enc")
             if (charsRead < 0) {
-                counter--;
-                error("ERROR reading from socket");
+                counter--;                                          // undo counter, this didn't work
+                fprintf(stderr, "enc_server: error reading from socket\n");
+                exit(1);
             }
-            if (strcmp(buffer, "enc") != 0) {
-                counter--;
+            if (strcmp(buffer, "enc") != 0) {                       // NOT A VALID CONNECTION
+                counter--;                                          // undo counter
                 fprintf(stderr, "Incorrect server connection");
                 exit(2);
             }
-            printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
             
+            // Get the SIZE of the message to be encrypted from the client (in bytes)
             memset(buffer, '\0', 256);
-            // get the size of the mexsage
-            charsRead = recv(connectionSocket, buffer, 5, 0); 
+            charsRead = recv(connectionSocket, buffer, 5, 0);       // client should send 5 bytes
             if (charsRead < 0){
                 counter--;
-                error("ERROR writing to socket");
+                fprintf(stderr, "enc_server: error reading from socket\n");
+                exit(1);
             }
-            printf("SERVER: I received this from the client: \"%s\"\n", buffer);
-            int sizeOfMsg = atoi(buffer);
+            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+            int sizeOfMsg = atoi(buffer);                           // necessary for next step: look for a message of this length
 
-            // get message
+            // Get the message to be encrypted from the client
             memset(buffer, '\0', 256);
-            // TODO allocate a buffer later
-            // TODO only read 256 bytes at a time
             // TODO retry n number of times ???   
-            //charsRead = recv(connectionSocket, buffer, sizeOfMsg, 0);
-            char *msgBuffer = calloc(sizeOfMsg, sizeof(char));
+            char *msgBuffer = calloc(sizeOfMsg, sizeof(char));      // Allocate buffer just for storing the rec'd msg
             int msgIndex = 0;
             int len = sizeOfMsg;
             while (len > 0) {
-                if (len < 256) {
-                    //sentChars = send(socketFD, &buffer[msgIndex], len, 0);
+                if (len < 256) {                                    // If msg is < 256 chars, or that is all that is left
                     charsRead = recv(connectionSocket, &msgBuffer[msgIndex], len, 0);
                     if (charsRead != len) {
-                        error("Data is missing");
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
                     }
                     break;
-                } else {
+                } else {                                            // Otherwise just grab 256 chars at a time
                     charsRead = recv(connectionSocket, &msgBuffer[msgIndex], 256, 0);
-                    msgIndex += 256;
-                    len = len - 256;
+                    msgIndex += 256;                                // move index up
+                    len = len - 256;                                // move size down
                     if (charsRead != 256) {
-                        error("Data is missing");
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
                     }
                 }
             }
@@ -146,44 +144,74 @@ int main(int argc, char *argv[]){
             
             
             
+            /* redundant code???
             if (charsRead < 0){
                 counter--;
                 error("ERROR writing to socket");
             }
             printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+            */
             //char *msgBuffer = calloc(sizeOfMsg, sizeof(char));
             // save message in buffer
             //strcpy(msgBuffer, buffer);
 
-            // get key
+            // Get the SIZE of the key to use to encrypt from the client (in bytes)
             memset(buffer, '\0', 256);
-            // get the size of the mexsage
-            charsRead = recv(connectionSocket, buffer, 5, 0); 
+            charsRead = recv(connectionSocket, buffer, 5, 0);       // client should send 5 bytes
             if (charsRead < 0){
                 counter--;
-                error("ERROR writing to socket");
+                fprintf(stderr, "enc_server: error reading from socket\n");
+                exit(1);
             }
-            printf("SERVER: I received this from the client: \"%s\"\n", buffer);
-            int sizeOfKey = atoi(buffer);
+            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+            int sizeOfKey = atoi(buffer);                           // necessary for next step: look for a key of this length
             
-            
-            //printf("server: rec'd buffer size is %d\n", sizeOfMsg);
-            // get message
+            // Get the key to use to encrypt from the client
             memset(buffer, '\0', 256);
-            // TODO allocate a buffer later
-            // TODO only read 256 bytes at a time
             // TODO retry n number of times ???
+            char *keyBuffer = calloc(sizeOfKey, sizeof(char));      // Allocate buffer just for storing the rec'd msg
+            int keyIndex = 0;
+            int keyLen = sizeOfKey;
+            while (keyLen > 0) {
+                if (keyLen < 256) {                                    // If msg is < 256 chars, or that is all that is left
+                    charsRead = recv(connectionSocket, &keyBuffer[keyIndex], keyLen, 0);
+                    if (charsRead != keyLen) {
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
+                    }
+                    break;
+                } else {                                            // Otherwise just grab 256 chars at a time
+                    charsRead = recv(connectionSocket, &keyBuffer[keyIndex], 256, 0);
+                    keyIndex += 256;                                // move index up
+                    keyLen = keyLen - 256;                                // move size down
+                    if (charsRead != 256) {
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
+                    }
+                }
+            }
+
+
+
+
+
+            /*
             charsRead = recv(connectionSocket, buffer, sizeOfKey, 0);
             if (charsRead < 0){
                 counter--;
-                error("ERROR writing to socket");
+                fprintf(stderr, "enc_server: error reading from socket\n");
+                exit(1);
             }
-            printf("SERVER: I received this from the client: \"%s\"\n", buffer);
+            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
             char *keyBuffer = calloc(sizeOfKey, sizeof(char));
             // save message in buffer
             strcpy(keyBuffer, buffer);
+            */
 
 
+
+
+            // Create ciphertext by encrypting message with key
             char *encBuffer = calloc(sizeOfMsg, sizeof(char));
             int i = 0;
             for (i = 0; i< sizeOfMsg; i++) {
@@ -210,55 +238,38 @@ int main(int argc, char *argv[]){
 
             //printf("Encryption: %s\n", encBuffer);
 
-            // tell client how big the encrypted message will be
+            // Tell client how big the encrypted message will be
             memset(buffer, '\0', sizeof(buffer));
             sprintf(buffer, "%5d", sizeOfMsg);
             int sentChars = send(connectionSocket, buffer, strlen(buffer), 0);
             
-            // send message
+            // Send ciphertext
             memset(buffer, '\0', sizeof(buffer));
             strcpy(buffer, encBuffer);
-            printf("SERVEr: sending \"%s\" \n", buffer);
-            sentChars = send(connectionSocket, buffer, strlen(buffer), 0);
-            
-/*
-            sentChars = send(connectionSocket, encBuffer, sizeof(encBuffer), 0);
-            if (keyRead < 0) {
-                error("ERROR writing key to socket");
+            //printf("SERVEr: sending \"%s\" \n", buffer);
+            //sentChars = send(connectionSocket, buffer, strlen(buffer), 0);
+            int encIndex = 0;
+            int encLen = strlen(encBuffer);
+            while (encLen > 0) {
+                if (encLen < 256) {
+                    sentChars = send(connectionSocket, &buffer[encIndex], encLen, 0);
+                    if (sentChars != len) {
+                        error("Data is missing");
+                    }
+                    break;
+                } else {
+                    sentChars = send(connectionSocket, &buffer[encIndex], 256, 0);
+                    encIndex += 256;
+                    encLen = encLen - 256;
+                    if (sentChars != 256) {
+                        error("Data is missing");
+                    }
+                }
             }
-*/
             counter--;
-            exit(0);
-        } 
-
-
-        // get key
-        /*
-        connectionSocket = accept(listenSocket, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); 
-        if (connectionSocket < 0){
-            error("ERROR on accept");
+            exit(0);        
         }
-        
-        memset(keyBuffer, '\0', 256);
-        keyRead = recv(connectionSocket, keyBuffer, 255, 0);
-        if (keyRead < 0) {
-            error("ERROR reading key from socket");
-        }
-        printf("SERVER: I received this from the client: \"%s\"\n", keyBuffer);
-        */
 
-        
-
-        // Send a Success message back to the client
-        
-
-        /*
-        keyRead = send(connectionSocket, keyBuffer, sizeof(keyBuffer), 0);
-        if (keyRead < 0) {
-          error("ERROR writing key to socket");
-        }
-        */
-        // Close the connection socket for this client
         close(connectionSocket); 
         close(keyConnectionSocket);
     }
