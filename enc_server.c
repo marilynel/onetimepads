@@ -107,7 +107,7 @@ int main(int argc, char *argv[]){
                 if (len < 256) {                                    // If msg is < 256 chars, or that is all that is left
                     charsRead = recv(connectionSocket, &msgBuffer[msgIndex], len, 0);
                     if (charsRead != len) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                        fprintf(stderr, "enc_server: message data is missing 1\n");
                         exit(1);
                     }
                     break;
@@ -116,7 +116,7 @@ int main(int argc, char *argv[]){
                     msgIndex += 256;                                // move index up
                     len = len - 256;                                // move size down
                     if (charsRead != 256) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                        fprintf(stderr, "enc_server: message data is missing 2\n");
                         exit(1);
                     }
                 }
@@ -142,7 +142,7 @@ int main(int argc, char *argv[]){
                 if (keyLen < 256) {                                    // If msg is < 256 chars, or that is all that is left
                     charsRead = recv(connectionSocket, &keyBuffer[keyIndex], keyLen, 0);
                     if (charsRead != keyLen) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                        fprintf(stderr, "enc_server: message data is missing 3\n");
                         exit(1);
                     }
                     break;
@@ -151,7 +151,7 @@ int main(int argc, char *argv[]){
                     keyIndex += 256;                                // move index up
                     keyLen = keyLen - 256;                                // move size down
                     if (charsRead != 256) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                        fprintf(stderr, "enc_server: message data is missing 4\n");
                         exit(1);
                     }
                 }
@@ -188,24 +188,22 @@ int main(int argc, char *argv[]){
             int sentChars = send(connectionSocket, buffer, strlen(buffer), 0);
             
             // Send ciphertext
-            memset(buffer, '\0', sizeof(buffer));
-            strcpy(buffer, encBuffer);
             int encIndex = 0;
             int encLen = strlen(encBuffer);
             while (encLen > 0) {
                 if (encLen < 256) {
-                    sentChars = send(connectionSocket, &buffer[encIndex], encLen, 0);
-                    if (sentChars != keyLen) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                    sentChars = send(connectionSocket, &encBuffer[encIndex], encLen, 0);
+                    if (sentChars != encLen) {
+                        fprintf(stderr, "enc_server: message data is missing 5\n");
                         exit(1);
                     }
                     break;
                 } else {
-                    sentChars = send(connectionSocket, &buffer[encIndex], 256, 0);
+                    sentChars = send(connectionSocket, &encBuffer[encIndex], 256, 0);
                     encIndex += 256;
                     encLen = encLen - 256;
                     if (sentChars != 256) {
-                        fprintf(stderr, "enc_server: message data is missing\n");
+                        fprintf(stderr, "enc_server: message data is missing 6\n");
                         exit(1);
                     }
                 }
