@@ -21,7 +21,7 @@ void setupAddressStructServer(struct sockaddr_in* address, int portNumber) {
 }
 
 int main(int argc, char *argv[]){
-    int connectionSocket, charsRead, keyRead, encRead, keyConnectionSocket;
+    int connectionSocket, charsRead, keyRead, encRead;
     char buffer[256];
     char keyBuffer[256];
     char encBuffer[256];
@@ -83,8 +83,14 @@ int main(int argc, char *argv[]){
             }
             if (strcmp(buffer, "enc") != 0) {                       // NOT A VALID CONNECTION
                 counter--;                                          // undo counter
-                fprintf(stderr, "Incorrect server connection");
+                //fprintf(stderr, "Incorrect server connection");
+                strcpy(buffer, "no");
+                int badConnect = send(connectionSocket, buffer, strlen(buffer), 0);
+                close(connectionSocket);
                 exit(2);
+            } else {
+                strcpy(buffer, "ok");
+                int goodConnect = send(connectionSocket, buffer, strlen(buffer), 0);
             }
             
             // Get the SIZE of the message to be encrypted from the client (in bytes)
@@ -213,7 +219,6 @@ int main(int argc, char *argv[]){
         }
 
         close(connectionSocket); 
-        close(keyConnectionSocket);
     }
     // Close the listening socket
     close(listenSocket); 
