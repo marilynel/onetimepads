@@ -6,12 +6,6 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 
-// Error function used for reporting issues
-void error(const char *msg) {
-    perror(msg);
-    exit(1);
-} 
-
 
 // Set up the address struct for the server socket
 void setupAddressStructServer(struct sockaddr_in* address, int portNumber) {
@@ -55,7 +49,6 @@ int main(int argc, char *argv[]){
 
     // Associate the socket to the port
     if (bind(listenSocket, (struct sockaddr *)&serverAddress, sizeof(serverAddress)) < 0) {
-        //error("ERROR on binding");
         fprintf(stderr, "enc_server: error binding socket to port\n");
         exit(1);
     }
@@ -65,20 +58,12 @@ int main(int argc, char *argv[]){
   
     // Accept a connection, blocking if one is not available until one connects
     while(1) {
-        // Accept the connection request which creates a connection socket as long as there are not more than 5
-        /*if (counter >=5) {
-            sleep(1000);
-            continue;
-        }*/
-
         connectionSocket = accept(listenSocket, (struct sockaddr *)&clientAddress, &sizeOfClientInfo); 
         if (connectionSocket < 0){
             fprintf(stderr, "enc_server: error on accept\n");
             exit(1);
-            //error("ERROR on accept");
         }
-        // increment counter to indicate how many child processes are going
-        counter++;  
+        counter++;                                                  // increment counter to indicate how many child processes are going  
 
         int child;
         pid_t spawnpid = fork();
@@ -101,7 +86,6 @@ int main(int argc, char *argv[]){
                 fprintf(stderr, "Incorrect server connection");
                 exit(2);
             }
-            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
             
             // Get the SIZE of the message to be encrypted from the client (in bytes)
             memset(buffer, '\0', 256);
@@ -111,7 +95,6 @@ int main(int argc, char *argv[]){
                 fprintf(stderr, "enc_server: error reading from socket\n");
                 exit(1);
             }
-            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
             int sizeOfMsg = atoi(buffer);                           // necessary for next step: look for a message of this length
 
             // Get the message to be encrypted from the client
@@ -139,22 +122,6 @@ int main(int argc, char *argv[]){
                 }
             }
 
-            // redo for key
-
-            
-            
-            
-            /* redundant code???
-            if (charsRead < 0){
-                counter--;
-                error("ERROR writing to socket");
-            }
-            printf("SERVER: I received this from the client: \"%s\"\n", buffer);
-            */
-            //char *msgBuffer = calloc(sizeOfMsg, sizeof(char));
-            // save message in buffer
-            //strcpy(msgBuffer, buffer);
-
             // Get the SIZE of the key to use to encrypt from the client (in bytes)
             memset(buffer, '\0', 256);
             charsRead = recv(connectionSocket, buffer, 5, 0);       // client should send 5 bytes
@@ -163,7 +130,6 @@ int main(int argc, char *argv[]){
                 fprintf(stderr, "enc_server: error reading from socket\n");
                 exit(1);
             }
-            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
             int sizeOfKey = atoi(buffer);                           // necessary for next step: look for a key of this length
             
             // Get the key to use to encrypt from the client
@@ -191,26 +157,6 @@ int main(int argc, char *argv[]){
                 }
             }
 
-
-
-
-
-            /*
-            charsRead = recv(connectionSocket, buffer, sizeOfKey, 0);
-            if (charsRead < 0){
-                counter--;
-                fprintf(stderr, "enc_server: error reading from socket\n");
-                exit(1);
-            }
-            //printf("SERVER: I received this from the client: \"%s\"\n", buffer);
-            char *keyBuffer = calloc(sizeOfKey, sizeof(char));
-            // save message in buffer
-            strcpy(keyBuffer, buffer);
-            */
-
-
-
-
             // Create ciphertext by encrypting message with key
             char *encBuffer = calloc(sizeOfMsg, sizeof(char));
             int i = 0;
@@ -236,8 +182,6 @@ int main(int argc, char *argv[]){
                 }
             }
 
-            //printf("Encryption: %s\n", encBuffer);
-
             // Tell client how big the encrypted message will be
             memset(buffer, '\0', sizeof(buffer));
             sprintf(buffer, "%5d", sizeOfMsg);
@@ -246,15 +190,14 @@ int main(int argc, char *argv[]){
             // Send ciphertext
             memset(buffer, '\0', sizeof(buffer));
             strcpy(buffer, encBuffer);
-            //printf("SERVEr: sending \"%s\" \n", buffer);
-            //sentChars = send(connectionSocket, buffer, strlen(buffer), 0);
             int encIndex = 0;
             int encLen = strlen(encBuffer);
             while (encLen > 0) {
                 if (encLen < 256) {
                     sentChars = send(connectionSocket, &buffer[encIndex], encLen, 0);
-                    if (sentChars != len) {
-                        error("Data is missing");
+                    if (sentChars != keyLen) {
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
                     }
                     break;
                 } else {
@@ -262,7 +205,8 @@ int main(int argc, char *argv[]){
                     encIndex += 256;
                     encLen = encLen - 256;
                     if (sentChars != 256) {
-                        error("Data is missing");
+                        fprintf(stderr, "enc_server: message data is missing\n");
+                        exit(1);
                     }
                 }
             }
