@@ -118,6 +118,14 @@ int main(int argc, char *argv[]) {
         exit(2);
     }
 
+    memset(buffer, '\0', sizeof(buffer));
+    int checkConnect = recv(socketFD, buffer, 2, 0);
+    if (strcmp(buffer, "ok") != 0) {
+        fprintf(stderr, "server connection not allowed\n");
+        exit(2);
+    }
+    
+
     // Tell server how big the message will be
     memset(buffer, '\0', sizeof(buffer));
     sprintf(buffer, "%5d", sizeOfMsg-1);
