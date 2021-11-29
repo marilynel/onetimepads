@@ -6,11 +6,6 @@
 #include <sys/socket.h> // send(),recv()
 #include <netdb.h>      // gethostbyname()
 
-// Error function used for reporting issues
-void error(const char *msg) { 
-    perror(msg); 
-    exit(1); 
-} 
 
 // Set up the address struct
 void setupAddressStructClient(struct sockaddr_in* address, int portNumber, char* hostname) {
