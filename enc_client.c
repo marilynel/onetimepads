@@ -6,13 +6,6 @@
 #include <sys/socket.h> // send(),recv()
 #include <netdb.h>      // gethostbyname()
 
-/**
-* Client code
-* 1. Create a socket and connect to the server specified in the command arugments.
-* 2. Prompt the user for input and send that input as a message to the server.
-* 3. Print the message received from the server and exit the program.
-*/
-
 // Error function used for reporting issues
 void error(const char *msg) { 
     perror(msg); 
@@ -39,14 +32,10 @@ void setupAddressStructClient(struct sockaddr_in* address, int portNumber, char*
     memcpy((char*) &address->sin_addr.s_addr, hostInfo->h_addr_list[0], hostInfo->h_length);
 }
 
-// Usage: enc_client myplaintext mykey 57171
-//        <prg name> <message>   <key> <port>
-
 int main(int argc, char *argv[]) {
     int socketFD, portNumber, charsWritten, charsRead, keyWritten, keyRead, nextSend;
     struct sockaddr_in serverAddress;
     char buffer[256];
-    char keyBuffer[256];
     // Check usage & args
     if (argc < 3) { 
         fprintf(stderr,"USAGE: %s messageFile keyFile port\n", argv[0]);        
@@ -54,61 +43,65 @@ int main(int argc, char *argv[]) {
         exit(0); 
     } 
 
-    // open and read message file
+    // Open and read message file into buffer
     FILE *messageFile = fopen(argv[1], "r");
-    // move pointer to end of file
     fseek(messageFile, 0, SEEK_END);
-    // find size of file
-    int sizeOfMsg = ftell(messageFile);
-    // move cursor back to beginning of file??
-    fseek(messageFile, 0, SEEK_SET);
+    int sizeOfMsg = ftell(messageFile);             // get size of file from the end
+    fseek(messageFile, 0, SEEK_SET);                // move cursor back to beginning of file??
     char *msgBuffer = calloc(sizeOfMsg, sizeof(char));
     if (msgBuffer == NULL) {
-        error("Unable to create buffer");
+        fprintf(stderr, "enc_client: error creating buffer\n");
+        exit(1);
     }
-    // read file into buffer
     size_t result = fread(msgBuffer, sizeof(char), sizeOfMsg, messageFile);
     if (result != sizeOfMsg) {
-        error("Read from file error");
+        fprintf(stderr, "enc_client: error reading file\n");
+        exit(1);
     }
-    // remove trailing newline 
-    msgBuffer[sizeOfMsg - 1] = '\0';
+    msgBuffer[sizeOfMsg - 1] = '\0';                // remove trailing newline 
 
-    // validate message input
+    // Check message for valid characters only (A to Z, plus space)
     int i = 0;
     for (i = 0; i < sizeOfMsg-1; i++) {
         if (((msgBuffer[i] < 'A') || (msgBuffer[i] > 'Z'))) {
             if (msgBuffer[i] != ' ') {
-                error("Invalid message");
+                fprintf(stderr, "enc_client error: input contains bad characters\n");
+                exit(1);
             }
         } 
     }
 
-    // open and read key file
+    // Open and read key file into buffer
     FILE *keyFile = fopen(argv[2], "r");
     fseek(keyFile, 0, SEEK_END);
     int sizeOfKey = ftell(keyFile);
     fseek(keyFile, 0, SEEK_SET);
-
+    char *keyBuffer = calloc(sizeOfKey, sizeof(char));
+    if (keyBuffer == NULL) {
+        fprintf(stderr, "enc_client: error creating buffer\n");
+        exit(1);
+    }
     size_t keyresult = fread(keyBuffer, sizeof(char), sizeOfKey, keyFile);
     if (keyresult != sizeOfKey) {
-        error("Read from key error");
+        fprintf(stderr, "enc_client: error reading file\n");
+        exit(1);
     }
-    keyBuffer[sizeOfKey - 1] = '\0';
+    keyBuffer[sizeOfKey - 1] = '\0';                // remove trailing newline 
 
 
 
-
+    // Check to make sure key is at least as large as the message
     if (sizeOfKey < sizeOfMsg) {
-        //error("Error: key ‘%s’ is too short", argv[2]);
-        error("Error: key is too short");
+        fprintf(stderr, "Error: key ‘%s’ is too short\n", argv[2]);
+        exit(1);
     } 
 
 
     // Create a socket
     socketFD = socket(AF_INET, SOCK_STREAM, 0); 
     if (socketFD < 0){
-        error("CLIENT: ERROR opening socket");
+        fprintf(stderr, "enc_client: error opening socket\n");
+        exit(1);
     }
 
     
@@ -117,11 +110,11 @@ int main(int argc, char *argv[]) {
     
     // Connect to server
     if (connect(socketFD, (struct sockaddr*)&serverAddress, sizeof(serverAddress)) < 0) {
-        printf("ok\n");
-        error("CLIENT: ERROR connecting");
+        fprintf(stderr, "enc_client: error connecting to server\n");
+        exit(1);
     }
 
-    // check for valid client/server connection by sending "enc" to server
+    // Check for valid client/server connection by sending "enc" to server
     memset(buffer, '\0', sizeof(buffer));
     strcpy(buffer, "enc");
     int sentChars = send(socketFD, buffer, strlen(buffer), 0);
@@ -130,105 +123,97 @@ int main(int argc, char *argv[]) {
         exit(2);
     }
 
-    // tell server how big the message will be
+    // Tell server how big the message will be
     memset(buffer, '\0', sizeof(buffer));
     sprintf(buffer, "%5d", sizeOfMsg-1);
     sentChars = send(socketFD, buffer, strlen(buffer), 0);
 
-    // send message
+    // Send message to be encrypted
     memset(buffer, '\0', sizeof(buffer));
-    strcpy(buffer, msgBuffer);
-    printf("CLIENT: sending \"%s\" \n", buffer);
+    //strcpy(buffer, msgBuffer);
     int msgIndex = 0;
     int len = strlen(msgBuffer);
     while (len > 0) {
         if (len < 256) {
-            sentChars = send(socketFD, &buffer[msgIndex], len, 0);
+            sentChars = send(socketFD, &msgBuffer[msgIndex], len, 0);
             if (sentChars != len) {
-                error("Data is missing");
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
             }
             break;
         } else {
-            sentChars = send(socketFD, &buffer[msgIndex], 256, 0);
+            sentChars = send(socketFD, &msgBuffer[msgIndex], 256, 0);
             msgIndex += 256;
             len = len - 256;
             if (sentChars != 256) {
-                error("Data is missing");
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
             }
         }
     }
 
-    // redo for key
 
-
-    // tell server how big the key will be
+    // Tell server how big the key will be
     memset(buffer, '\0', sizeof(buffer));
     sprintf(buffer, "%5d", sizeOfKey-1);
     sentChars = send(socketFD, buffer, strlen(buffer), 0);
 
-    // send key
+    // Send key
     memset(buffer, '\0', sizeof(buffer));
-    strcpy(buffer, keyBuffer);
-    printf("CLIENT: sending \"%s\" \n", buffer);
-    sentChars = send(socketFD, buffer, strlen(buffer), 0);
-
-
-
-    // Send message to server
-    // Write to the server
-    /*
-    charsWritten = send(socketFD, buffer, strlen(buffer)+1, 0); 
-    if (charsWritten < 0){
-        error("CLIENT: ERROR writing to socket");
+    int keyIndex = 0;
+    int keyLen = strlen(keyBuffer);
+    while (keyLen > 0) {
+        if (keyLen < 256) {
+            sentChars = send(socketFD, &keyBuffer[keyIndex], keyLen, 0);
+            if (sentChars != keyLen) {
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
+            }
+            break;
+        } else {
+            sentChars = send(socketFD, &keyBuffer[keyIndex], 256, 0);
+            keyIndex += 256;
+            keyLen = keyLen - 256;
+            if (sentChars != 256) {
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
+            }
+        }
     }
-    if (charsWritten < strlen(buffer)){
-        printf("CLIENT: WARNING: Not all data written to socket!\n");
-    }
-    */
-
-    /*
-    keyWritten = send(socketFD, keyBuffer, strlen(keyBuffer)+1, 0); 
-    //printf("Client: sending key\n");
-    if (keyWritten < 0){
-        error("CLIENT: ERROR writing key to socket");
-    }
-    if (keyWritten < strlen(keyBuffer)){
-        printf("CLIENT: WARNING: Not all key data written to socket!\n");
-    }
-    */
 
     // Get size of encrypted message from server
-    // Clear out the buffer again for reuse
-    memset(buffer, '\0', sizeof(buffer));
-    // get size of encrypted message
+    memset(buffer, '\0', 256);
     charsRead = recv(socketFD, buffer, 5, 0); 
     if (charsRead < 0){
-        error("CLIENT: ERROR reading from socket");
+        fprintf(stderr, "enc_client: error reading from socket\n");
+        exit(1);
     }
-    printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
-    sizeOfMsg = atoi(buffer);
-    
-    // get encrypted message from server
-    memset(buffer, '\0', 256);
-    // get the size of the mexsage
-    charsRead = recv(socketFD, buffer, sizeOfMsg, 0); 
-    if (charsRead < 0){
-        error("ERROR writing to socket");
+    int sizeOfEnc = atoi(buffer);
+    // TODO retry n number of times ???   
+    char *encBuffer = calloc(sizeOfMsg, sizeof(char));      // Allocate buffer just for storing the rec'd msg
+    int encIndex = 0;
+    int encLen = sizeOfEnc;
+    while (encLen > 0) {
+        if (encLen < 256) {                                    // If msg is < 256 chars, or that is all that is left
+            charsRead = recv(socketFD, &encBuffer[encIndex], encLen, 0);
+            if (charsRead != encLen) {
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
+            }
+            break;
+        } else {                                            // Otherwise just grab 256 chars at a time
+            charsRead = recv(socketFD, &encBuffer[encIndex], 256, 0);
+            encIndex += 256;                                // move index up
+            encLen = encLen - 256;                                // move size down
+            if (charsRead != 256) {
+                fprintf(stderr, "enc_client: message data is missing\n");
+                exit(1);
+            }
+        }
     }
-    printf("CLIENT: I received this from the server: \"%s\"\n", buffer);
-   
 
-
-
-    /*
-    memset(keyBuffer, '\0', sizeof(keyBuffer));
-    // Read data from the socket, leaving \0 at end
-    keyRead = recv(socketFD, keyBuffer, sizeof(keyBuffer) - 1, 0); 
-    if (keyRead < 0){
-        error("CLIENT: ERROR reading from socket");
-    }
-    printf("CLIENT: I received this from the server: \"%s\"\n", keyBuffer);
-*/
+    printf("%s\n", encBuffer);
+ 
     // Close the socket
     close(socketFD); 
     return 0;
